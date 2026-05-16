@@ -55,7 +55,7 @@ local ItemInfo = setmetatable({}, {
 			-- Wrap the existing config so missing fields inside it also fall back.
 			return setmetatable(raw, { __index = DefaultItemConfig })
 		end
-		-- Item has no entry at all - return the full defaults table.
+		-- Item has no entry at all, return the full defaults table.
 		return DefaultItemConfig
 	end,
 })

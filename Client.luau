@@ -30,7 +30,7 @@ end)
 
 local RemotesFolder = ReplicatedStorage:WaitForChild("Remotes")
 local ModulesFolder = ReplicatedStorage:WaitForChild("Modules")
-local ShatterPacket = RemotesFolder:WaitForChild("ShatterPacket")
+local ShatterPacket = RemotesFolder:WaitForChild("ShatterPacket") -- remote used when shattering an item that is dropped or thrown, sent to server for replication.
 
 local ItemsFolder = workspace.Items
 
@@ -38,7 +38,7 @@ local ItemsFolder = workspace.Items
 -- Item Configuration
 -- ════════════════════════════════════════════════════════════════════════════════
 
-local RawItemInfo = require(ModulesFolder.Items)
+local RawItemInfo = require(ModulesFolder.Items) -- raw item information containing the config for each item.
 
 local DefaultItemConfig = {
 	Responsiveness = 25,
@@ -49,12 +49,13 @@ local DefaultItemConfig = {
 
 local ItemInfo = setmetatable({}, {
 	__index = function(_, itemName)
+		-- Getting the raw item information.
 		local raw = RawItemInfo[itemName]
 		if raw then
-			-- Wrap the existing config so missing fields inside it also fall back
+			-- Wrap the existing config so missing fields inside it also fall back.
 			return setmetatable(raw, { __index = DefaultItemConfig })
 		end
-		-- Item has no entry at all — return the full defaults table
+		-- Item has no entry at all - return the full defaults table.
 		return DefaultItemConfig
 	end,
 })
@@ -75,15 +76,18 @@ local walkKeyBinds = {
 	Right = {Key = Enum.KeyCode.D, Direction = Enum.NormalId.Right}
 }
 
+-- Gets the walking direction in camera space
 local function getWalkDirectionCameraSpace(): Vector3
 	local walkDir = Vector3.new()
 
+    -- Accumulate directional input from active keybinds
 	for _, keyBind in pairs(walkKeyBinds) do
 		if UserInputService:IsKeyDown(keyBind.Key) then
 			walkDir += Vector3.FromNormalId(keyBind.Direction)
 		end
 	end
 
+	-- Normalize the direction to stop faster diagonal movement
 	if walkDir.Magnitude > 0 then
 		walkDir = walkDir.Unit
 	end
@@ -93,9 +97,11 @@ end
 
 -- Converts camera space walk direction into world space and strips the vertical component so the character stays grounded.
 local function getWalkDirectionWorldSpace(): Vector3
+	-- Convert relative walk input into world space
 	local walkDir = Camera.CFrame:VectorToWorldSpace(getWalkDirectionCameraSpace())
 	walkDir *= Vector3.new(1, 0, 1)
 
+	-- Normalizing the direction
 	if walkDir.Magnitude > 0 then
 		walkDir = walkDir.Unit
 	end
@@ -108,8 +114,10 @@ local function updateMovement(dt: number)
 	local humanoid = Character:FindFirstChild("Humanoid")
 	if not humanoid then return end
 
+	-- Getting the walk direction in world space
 	targetMoveVelocity = getWalkDirectionWorldSpace()
 
+	-- Lerping moveVelocity toward targetMoveVelocity to make it smooth
 	moveVelocity = moveVelocity:Lerp(targetMoveVelocity, math.clamp(dt * moveAcceleration, 0, 1))
 	humanoid:Move(moveVelocity)
 end
@@ -126,6 +134,7 @@ local holdDistance = 2
 UserInputService.PointerAction:Connect(function(wheel, _pan, _pinch, gameProcessed)
 	if gameProcessed then return end
 
+	-- Adding or subtracting the hold distance based on the scroll wheel input. (1 is up, -1 is down)
 	if wheel >= 0 then
 		holdDistance = math.clamp(holdDistance + 1, 2, 10)
 	else
@@ -174,6 +183,7 @@ local holdingAttributeContainer  = script.Holding.at
 -- Invisible parts used as constraint targets
 
 local function makeAnchorPart(name: string): (Part, Attachment)
+    -- Creating an invisible part to act as a constraint target.
 	local part = Instance.new("Part")
 	part.Anchored = true
 	part.Size = Vector3.one
@@ -214,13 +224,19 @@ local function beginRotation()
 	isRotating = true
 
 	-- Freeze the mouse sensitivity so camera doesn't move while we focus on rotating the object via mouse movements.
-
 	UserInputService.MouseDeltaSensitivity = 0
-	lastMousePos   = UserInputService:GetMouseLocation()
-	storedRotation = DraggedItem and DraggedItem.CFrame or CFrame.new()
+	targetRotation = DraggedItem and DraggedItem.CFrame or CFrame.new()
 
+	-- Disable the mouse icon to prevent it from obstructing the view.
 	UserInputService.MouseIconEnabled = false
 
+	-- Disable AlignOrientation while rotating so it doesn't fight the manual CFrame.
+	if DraggedItem then
+		local ao = DraggedItem:FindFirstChildOfClass("AlignOrientation")
+		if ao then ao.Enabled = false end
+	end
+
+	-- Play the visual effects for rotation.
 	highlightRotateTween:Play()
 	GrabBeam.Color = ColorSequence.new(Color3.fromRGB(104, 3, 255))
 
@@ -229,6 +245,7 @@ local function beginRotation()
 		child.Enabled = false
 	end
 
+	-- Adjust volume of the rotation sound effect while also adjusting the holding sound effect..
 	TweenService:Create(script.RotatingSFX, TweenInfo.new(0.1), { Volume = 0.5 }):Play()
 	TweenService:Create(script.HoldingSFX,  TweenInfo.new(0.1), { Volume = 0   }):Play()
 end
@@ -237,6 +254,12 @@ local function endRotation()
 	isRotating = false
 	UserInputService.MouseDeltaSensitivity = 1
 	UserInputService.MouseIconEnabled = true
+
+	-- Re-enable AlignOrientation now that manual rotation is done
+	if DraggedItem then
+		local ao = DraggedItem:FindFirstChildOfClass("AlignOrientation")
+		if ao then ao.Enabled = true end
+	end
 
 	highlightDefaultTween:Play()
 	GrabBeam.Color = ColorSequence.new(Color3.fromRGB(255, 255, 255))
@@ -257,6 +280,7 @@ UserInputService.InputBegan:Connect(function(input, gameProcessed)
 	beginRotation()
 end)
 
+-- End rotation mode when RMB is let go
 UserInputService.InputEnded:Connect(function(input)
 	if input.UserInputType ~= Enum.UserInputType.MouseButton2 then return end
 	if not DraggedItem then return end
@@ -277,6 +301,7 @@ local function setupItem(item: BasePart)
 	local posAttachment = Instance.new("Attachment")
 	posAttachment.Parent = item
 
+    -- Load handling config
 	local config = ItemInfo[item.Name]
 	local responsiveness = config.Responsiveness
 	local orientResponsive = config.OrientationResponsiveness
@@ -300,45 +325,60 @@ local function setupItem(item: BasePart)
 	local isCart = (item.Name == "Cart")
 
 	-- Grab callback
-
 	local function onDragStart()
+        -- Sets the beam to the position attachment of the item
 		GrabBeam.Attachment1 = posAttachment
 		holdingAttributeContainer.Parent = item
 		DraggedItem = item
 
+        -- Sets the align position attachment to either the leg attachment or the camera attachment depending on if the item is a cart or not
 		alignPos.Attachment1 = isCart and LegAttachment or CameraAttachment
 		alignPos.Enabled = true
 
+        -- Sets the align orientation attachment to the camera attachment
 		alignOrient.Attachment1 = CameraAttachment
+
+		-- If orientation responsiveness is greater than 0, enable the align orientation
 		if orientResponsive > 0 then
 			alignOrient.Enabled = true
 		end
 
+        -- Makes the highlight indicator appear on the item
 		HighlightIndicator.Parent = item
 		HighlightIndicator.Enabled = true
 		highlightDefaultTween:Play()
 
+        -- Tweens the volume of the holding sound effect
 		TweenService:Create(script.HoldingSFX, TweenInfo.new(1), { Volume = 0.5 }):Play()
 	end
 
 	-- Release callback
-
 	local function onDragEnd()
+        -- Ends the rotation mode
 		endRotation()
 
+        -- Resets the beam
 		GrabBeam.Attachment1 = nil
+        -- Moves the attribute container to the holding attribute container
 		holdingAttributeContainer.Parent = script.Holding
+        -- Sets the dragged item to nil
 		DraggedItem = nil
 
+        -- Sets the align position attachment to nil and disables it
 		alignPos.Attachment1 = nil
 		alignPos.Enabled = false
+
+        -- Sets the align orientation attachment to nil and disables it
 		alignOrient.Attachment1 = nil
 		alignOrient.Enabled = false
 
+        -- Nils the stored rotation and frozen orientation
 		storedRotation = nil
 		frozenOrientation = nil
 
+        -- Plays the unhover tween
 		highlightUnhoverTween:Play()
+        -- Tweens the volume of the holding sound effect
 		TweenService:Create(script.HoldingSFX, TweenInfo.new(1), { Volume = 0 }):Play()
 	end
 
@@ -348,9 +388,12 @@ local function setupItem(item: BasePart)
 	-- Green outline while the cursor is over a grabbable item
 	dragDetector.MouseHoverEnter:Connect(function()
 		highlightHoverTween:Play()
+
+        -- Makes the highlight indicator appear on the item
 		HighlightIndicator.Parent = item
 	end)
 
+    -- Calls the unhover tween when the mouse leaves the item
 	dragDetector.MouseHoverLeave:Connect(function()
 		highlightUnhoverTween:Play()
 	end)
@@ -359,7 +402,7 @@ local function setupItem(item: BasePart)
 	local function perItemUpdate()
 		local distFromCam = (item.Position - Camera.CFrame.Position).Magnitude
 
-		-- release if the item is too far from the camera
+		-- Release if the item is too far from the camera
 		if distFromCam >= 35 then
 			dragDetector.Enabled = false
 			if DraggedItem == item then
@@ -385,16 +428,18 @@ end
 local breakTemplate = ReplicatedStorage:WaitForChild("Break")
 
 ShatterPacket.OnClientEvent:Connect(function(position: Vector3)
+    -- Clones the break particle part and sets its position
 	local particle = breakTemplate:Clone()
 	particle.Position = position
 	particle.Parent = workspace
 
+    -- Finds the particle emitter and emits if found
 	local emitter = particle:FindFirstChildWhichIsA("ParticleEmitter")
 	if emitter then
 		emitter:Emit(emitter:GetAttribute("BurstCount") or 15)
 	end
 
-	-- cleanup
+	-- cleanup after 3 seconds, aka destroy the particle part.
 	task.delay(3, function()
 		if particle and particle.Parent then
 			particle:Destroy()
@@ -407,6 +452,10 @@ end)
 -- ════════════════════════════════════════════════════════════════════════════════
 
 local SHATTER_RENDER_DISTANCE = 30
+
+-- Setup reusable raycast params
+local shatterRayParams = RaycastParams.new()
+shatterRayParams.FilterType = Enum.RaycastFilterType.Exclude
 
 RunService.RenderStepped:Connect(function(dt: number)
 
@@ -432,6 +481,8 @@ RunService.RenderStepped:Connect(function(dt: number)
 	else
 		rotatingAttributeContainer.Parent = script.Rotating
 	end
+
+	-- Rotation mode handling
 
 	if DraggedItem then
 		if isRotating and lastMousePos and storedRotation then
@@ -478,14 +529,19 @@ RunService.RenderStepped:Connect(function(dt: number)
 		local speed = velocity.Magnitude
 		if speed < 1 then continue end
 
+        -- Reach of the raycast
 		local castReach = item.Size.Magnitude + 1
-		local ray = Ray.new(item.Position, velocity.Unit * castReach)
+        
+        shatterRayParams.FilterDescendantsInstances = {Character, item}
 
-		local hit, hitPos = workspace:FindPartOnRayWithIgnoreList(ray, { Character, item })
-		if hit then
+        -- Cast forward to predict impacts
+        local raycastResult = workspace:Raycast(item.Position, velocity.Unit * castReach, shatterRayParams)
+
+		if raycastResult then
 			local maxSpeed = ItemInfo[item.Name].SpeedMX
+            
 			if speed > maxSpeed then
-				ShatterPacket:FireServer(hitPos, item)
+				ShatterPacket:FireServer(raycastResult.Position, item)
 			end
 		end
 	end
